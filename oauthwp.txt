@@ -1,0 +1,72 @@
+<?php
+declare(strict_types=1);
+session_start();
+
+header('Content-Type: application/json; charset=utf-8');
+
+// (Opzionale) CORS se React e PHP sono su domini diversi
+// header('Access-Control-Allow-Origin: https://app.tuosito.it');
+// header('Access-Control-Allow-Credentials: true');
+
+$code = $_GET['code'] ?? '';
+if ($code === '') {
+  http_response_code(400);
+  echo json_encode(['ok' => false, 'error' => 'missing_code']);
+  exit;
+}
+
+// ===== CONFIG =====
+$client_id = 'tISRcrsYMnxvZuPNdujBZdMFSGRIQpNr';
+$client_secret = 'ZXlBnWLJaujbRFxPhBFIaKBiYJSnyUTY';
+
+// Deve essere IDENTICA alla redirect_uri usata nel bottone e registrata su miniOrange
+$redirect_uri = 'http://localhost:3001/oauthwp'; //http://localhost:3001/
+
+// Incolla dal pannello miniOrange (Token Endpoint)
+$token_endpoint = 'https://www.parrocchiasgibattista.it/site/wp-json/moserver/token';
+// ==================
+
+$postFields = http_build_query([
+  'grant_type' => 'authorization_code',
+  'code' => $code,
+  'redirect_uri' => $redirect_uri,
+  'client_id' => $client_id,
+  'client_secret' => $client_secret,
+]);
+
+$ch = curl_init($token_endpoint);
+curl_setopt_array($ch, [
+  CURLOPT_POST => true,
+  CURLOPT_POSTFIELDS => $postFields,
+  CURLOPT_RETURNTRANSFER => true,
+  CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+  CURLOPT_SSL_VERIFYPEER => false,
+  CURLOPT_SSL_VERIFYHOST => false,
+]);
+
+$response = curl_exec($ch);
+$http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+$err = curl_error($ch);
+curl_close($ch);
+
+if ($response === false) {
+  http_response_code(500);
+  echo json_encode(['ok' => false, 'error' => 'curl_error', 'detail' => $err]);
+  exit;
+}
+
+$data = json_decode($response, true);
+
+if ($http !== 200 || !is_array($data)) {
+  http_response_code(401);
+  echo json_encode(['ok' => false, 'error' => 'token_exchange_failed', 'http' => $http, 'raw' => $response]);
+  exit;
+}
+
+// Salva token in sessione (semplice e ok per iniziare)
+$_SESSION['access_token'] = $data['access_token'] ?? null;
+$_SESSION['id_token'] = $data['id_token'] ?? null;
+$_SESSION['token_type'] = $data['token_type'] ?? null;
+$_SESSION['expires_in'] = $data['expires_in'] ?? null;
+
+echo json_encode(['ok' => true, "response" => $data]);

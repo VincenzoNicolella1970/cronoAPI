@@ -1,0 +1,18 @@
+{
+  // Usare IntelliSense per informazioni sui possibili attributi.
+  // Al passaggio del mouse vengono visualizzate le descrizioni degli attributi esistenti.
+  // Per altre informazioni, visitare: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Listen for Xdebug",
+      "pathMappings": {
+        "C:\\Users\\Christiana\\Documents\\CronometristiFrosinone2026\\WebAPI": "${workspaceFolder}"
+      },
+      "type": "php",
+      "request": "launch",
+      "port": 9003,
+      "stopOnEntry": false
+    }
+  ]
+}

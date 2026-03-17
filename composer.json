@@ -1,0 +1,13 @@
+{
+    "name": "christiana/web-api",
+    "type": "project",
+    "authors": [
+        {
+            "name": "VincenzoNicolella1970",
+            "email": "vincenzo.nicolella.1970@gmail.com"
+        }
+    ],
+    "require": {
+        "vlucas/phpdotenv": "^5.6"
+    }
+}
