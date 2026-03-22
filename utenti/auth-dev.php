@@ -5,19 +5,17 @@ require_once __DIR__ . '/../core/bootstrap.php';
 require_once __DIR__ . '/functions.php';
 
 try {
-
-    // //Administrator
-    // //$mockUser = $config['dev_auth_admin'] ?? [];
-
-    // //Socio
-    // //$mockUser = $config['dev_auth_user'] ?? [];
+    $input = getJsonInput();
+    $keyLogin = $input['keyLogin'];
 
     //Utente admin come in produzione
-    $mockUser = $config['new_admin_vincenzo'] ?? [];
+    //$mockUser = $config['new_admin_vincenzo'] ?? [];
     //$mockUser = $config['new_admin_lorenzo'] ?? [];
 
     //Utente socio come in produzione
     //$mockUser = $config['new_socio_mariorossi'] ?? [];
+
+    $mockUser = $config[$keyLogin];
 
     //Ruolo
     $mockUser["roles"] = $mockUser["roles"][0];
