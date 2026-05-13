@@ -1,0 +1,388 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../core/bootstrap.php';
+
+header('Content-Type: application/json; charset=utf-8');
+
+function mesiPeriodo(DateTimeImmutable $start, DateTimeImmutable $end): array
+{
+    $mesi = [];
+    $nomiMesi = [
+        '01' => 'Gen',
+        '02' => 'Feb',
+        '03' => 'Mar',
+        '04' => 'Apr',
+        '05' => 'Mag',
+        '06' => 'Giu',
+        '07' => 'Lug',
+        '08' => 'Ago',
+        '09' => 'Set',
+        '10' => 'Ott',
+        '11' => 'Nov',
+        '12' => 'Dic',
+    ];
+
+    $cursor = $start->modify('first day of this month');
+
+    while ($cursor <= $end) {
+        $key = $cursor->format('Y-m');
+        $meseNum = $cursor->format('m');
+
+        $mesi[$key] = [
+            'mese' => $nomiMesi[$meseNum] ?? $cursor->format('M'),
+            'gare' => 0,
+            'note' => 0,
+        ];
+
+        $cursor = $cursor->modify('+1 month');
+    }
+
+    return $mesi;
+}
+
+function formattaPeriodo(DateTimeImmutable $start, DateTimeImmutable $end): string
+{
+    return $start->format('d/m/Y') . ' - ' . $end->format('d/m/Y');
+}
+
+function etichettaStato(string $stato): ?string
+{
+    return match (strtoupper($stato)) {
+        'BOZZA' => 'Bozza',
+        'INVIATA' => 'Inviate',
+        'APPROVATA' => 'Approvate',
+        'RESPINTA' => 'Rifiutate',
+        'LIQUIDATA' => 'Liquidate',
+        default => null,
+    };
+}
+
+function parseDateOrDefault(?string $value, DateTimeImmutable $default): DateTimeImmutable
+{
+    if (!$value) {
+        return $default;
+    }
+
+    $dt = DateTimeImmutable::createFromFormat('Y-m-d', $value);
+    if ($dt instanceof DateTimeImmutable) {
+        return $dt;
+    }
+
+    return $default;
+}
+
+try {
+
+    $input = json_decode((string) file_get_contents('php://input'), true);
+    $wpUserId = isset($input['id']) ? (int) $input['id'] : 0;
+
+    if ($wpUserId <= 0) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => 'ID utente non valido.',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $stmtUtente = $pdo->prepare("
+        SELECT u.wp_user_id, COALESCE(u.nome, u.display_name, u.username) AS utente
+        FROM tbl_utenti u
+        WHERE u.wp_user_id = :wp_user_id
+        LIMIT 1
+    ");
+    $stmtUtente->execute([
+        ':wp_user_id' => $wpUserId,
+    ]);
+    $utente = $stmtUtente->fetch(PDO::FETCH_ASSOC);
+
+    if (!$utente) {
+        http_response_code(404);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Utente non trovato.',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $oggi = new DateTimeImmutable('today');
+    $inizioDefault = new DateTimeImmutable($oggi->format('Y-01-01'));
+
+    $dataDaRaw = isset($input['data_da']) ? trim((string) $input['data_da']) : '';
+    $dataARaw = isset($input['data_a']) ? trim((string) $input['data_a']) : '';
+
+    $inizio = parseDateOrDefault($dataDaRaw, $inizioDefault);
+    $fine = parseDateOrDefault($dataARaw, $oggi);
+
+    if ($fine < $inizio) {
+        [$inizio, $fine] = [$fine, $inizio];
+    }
+
+    // KPI
+    $stmtKpi = $pdo->prepare("
+        SELECT
+            (SELECT COUNT(DISTINCT gu.rif_gara)
+             FROM tbl_gare_utenti gu
+             INNER JOIN tbl_gare g ON g.id_gara = gu.rif_gara
+             WHERE gu.rif_utente = :wp_user_id_1
+               AND g.data_inizio BETWEEN :data_inizio_1 AND :data_fine_1) AS gare_totali,
+
+            (SELECT COUNT(*)
+             FROM tbl_nota_spesa ns
+             WHERE ns.rif_utente = :wp_user_id_2
+               AND ns.data_servizio BETWEEN :data_inizio_2 AND :data_fine_2) AS note_totali,
+
+            (SELECT COUNT(*)
+             FROM tbl_nota_spesa ns
+             WHERE ns.rif_utente = :wp_user_id_3
+               AND ns.data_servizio BETWEEN :data_inizio_3 AND :data_fine_3
+               AND ns.stato = 'INVIATA') AS note_inviate,
+
+            (SELECT COUNT(*)
+             FROM tbl_nota_spesa ns
+             WHERE ns.rif_utente = :wp_user_id_4
+               AND ns.data_servizio BETWEEN :data_inizio_4 AND :data_fine_4
+               AND ns.stato = 'APPROVATA') AS note_approvate,
+
+            (SELECT COUNT(*)
+             FROM tbl_nota_spesa ns
+             WHERE ns.rif_utente = :wp_user_id_5
+               AND ns.data_servizio BETWEEN :data_inizio_5 AND :data_fine_5
+               AND ns.stato = 'RESPINTA') AS note_rifiutate,
+
+            (SELECT COUNT(*)
+             FROM tbl_nota_spesa ns
+             WHERE ns.rif_utente = :wp_user_id_6
+               AND ns.data_servizio BETWEEN :data_inizio_6 AND :data_fine_6
+               AND ns.stato = 'LIQUIDATA') AS note_liquidate
+    ");
+    $stmtKpi->execute([
+        ':wp_user_id_1' => $wpUserId,
+        ':data_inizio_1' => $inizio->format('Y-m-d'),
+        ':data_fine_1' => $fine->format('Y-m-d'),
+
+        ':wp_user_id_2' => $wpUserId,
+        ':data_inizio_2' => $inizio->format('Y-m-d'),
+        ':data_fine_2' => $fine->format('Y-m-d'),
+
+        ':wp_user_id_3' => $wpUserId,
+        ':data_inizio_3' => $inizio->format('Y-m-d'),
+        ':data_fine_3' => $fine->format('Y-m-d'),
+
+        ':wp_user_id_4' => $wpUserId,
+        ':data_inizio_4' => $inizio->format('Y-m-d'),
+        ':data_fine_4' => $fine->format('Y-m-d'),
+
+        ':wp_user_id_5' => $wpUserId,
+        ':data_inizio_5' => $inizio->format('Y-m-d'),
+        ':data_fine_5' => $fine->format('Y-m-d'),
+
+        ':wp_user_id_6' => $wpUserId,
+        ':data_inizio_6' => $inizio->format('Y-m-d'),
+        ':data_fine_6' => $fine->format('Y-m-d'),
+    ]);
+    $kpi = $stmtKpi->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    // Andamento mensile
+    $mesi = mesiPeriodo($inizio, $fine);
+
+    $stmtGareMensili = $pdo->prepare("
+        SELECT DATE_FORMAT(g.data_inizio, '%Y-%m') AS ym, COUNT(DISTINCT g.id_gara) AS totale
+        FROM tbl_gare_utenti gu
+        INNER JOIN tbl_gare g ON g.id_gara = gu.rif_gara
+        WHERE gu.rif_utente = :wp_user_id
+          AND g.data_inizio BETWEEN :data_inizio AND :data_fine
+        GROUP BY DATE_FORMAT(g.data_inizio, '%Y-%m')
+        ORDER BY ym
+    ");
+    $stmtGareMensili->execute([
+        ':wp_user_id' => $wpUserId,
+        ':data_inizio' => $inizio->format('Y-m-d'),
+        ':data_fine' => $fine->format('Y-m-d'),
+    ]);
+    foreach ($stmtGareMensili->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        if (isset($mesi[$row['ym']])) {
+            $mesi[$row['ym']]['gare'] = (int) $row['totale'];
+        }
+    }
+
+    $stmtNoteMensili = $pdo->prepare("
+        SELECT DATE_FORMAT(ns.data_servizio, '%Y-%m') AS ym, COUNT(*) AS totale
+        FROM tbl_nota_spesa ns
+        WHERE ns.rif_utente = :wp_user_id
+          AND ns.data_servizio BETWEEN :data_inizio AND :data_fine
+        GROUP BY DATE_FORMAT(ns.data_servizio, '%Y-%m')
+        ORDER BY ym
+    ");
+    $stmtNoteMensili->execute([
+        ':wp_user_id' => $wpUserId,
+        ':data_inizio' => $inizio->format('Y-m-d'),
+        ':data_fine' => $fine->format('Y-m-d'),
+    ]);
+    foreach ($stmtNoteMensili->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        if (isset($mesi[$row['ym']])) {
+            $mesi[$row['ym']]['note'] = (int) $row['totale'];
+        }
+    }
+
+    // Stato note
+    $statoNote = [
+        'Bozza' => 0,
+        'Inviate' => 0,
+        'Approvate' => 0,
+        'Rifiutate' => 0,
+        'Liquidate' => 0,
+    ];
+
+    $stmtStati = $pdo->prepare("
+        SELECT ns.stato, COUNT(*) AS totale
+        FROM tbl_nota_spesa ns
+        WHERE ns.rif_utente = :wp_user_id
+          AND ns.data_servizio BETWEEN :data_inizio AND :data_fine
+          AND ns.stato IN ('BOZZA', 'INVIATA', 'APPROVATA', 'RESPINTA', 'LIQUIDATA')
+        GROUP BY ns.stato
+    ");
+    $stmtStati->execute([
+        ':wp_user_id' => $wpUserId,
+        ':data_inizio' => $inizio->format('Y-m-d'),
+        ':data_fine' => $fine->format('Y-m-d'),
+    ]);
+    foreach ($stmtStati->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $label = etichettaStato((string) $row['stato']);
+        if ($label !== null) {
+            $statoNote[$label] = (int) $row['totale'];
+        }
+    }
+
+    // Ultime attività
+    $stmtAttivita = $pdo->prepare("
+        SELECT *
+        FROM (
+            SELECT
+                CONCAT('Assegnata gara \"', g.nome_gara, '\"') AS testo,
+                DATE(COALESCE(gu.created_at, g.created_at)) AS data_attivita,
+                COALESCE(gu.created_at, g.created_at) AS data_sort,
+                1 AS ordinamento
+            FROM tbl_gare_utenti gu
+            INNER JOIN tbl_gare g ON g.id_gara = gu.rif_gara
+            WHERE gu.rif_utente = :wp_user_id_1
+              AND DATE(COALESCE(gu.created_at, g.created_at)) BETWEEN :data_inizio_1 AND :data_fine_1
+
+            UNION ALL
+
+            SELECT
+                CONCAT('Nota spesa creata per ', COALESCE(g.nome_gara, CONCAT('Gara #', ns.rif_gara))) AS testo,
+                DATE(ns.created_at) AS data_attivita,
+                ns.created_at AS data_sort,
+                2 AS ordinamento
+            FROM tbl_nota_spesa ns
+            LEFT JOIN tbl_gare g ON g.id_gara = ns.rif_gara
+            WHERE ns.rif_utente = :wp_user_id_2
+              AND DATE(ns.created_at) BETWEEN :data_inizio_2 AND :data_fine_2
+
+            UNION ALL
+
+            SELECT
+                CONCAT('Nota spesa inviata per ', COALESCE(g.nome_gara, CONCAT('Gara #', ns.rif_gara))) AS testo,
+                DATE(COALESCE(ns.updated_at, ns.created_at)) AS data_attivita,
+                COALESCE(ns.updated_at, ns.created_at) AS data_sort,
+                3 AS ordinamento
+            FROM tbl_nota_spesa ns
+            LEFT JOIN tbl_gare g ON g.id_gara = ns.rif_gara
+            WHERE ns.rif_utente = :wp_user_id_3
+              AND ns.stato = 'INVIATA'
+              AND DATE(COALESCE(ns.updated_at, ns.created_at)) BETWEEN :data_inizio_3 AND :data_fine_3
+
+            UNION ALL
+
+            SELECT
+                CONCAT('Nota spesa rifiutata per ', COALESCE(g.nome_gara, CONCAT('Gara #', ns.rif_gara))) AS testo,
+                DATE(COALESCE(ns.updated_at, ns.created_at)) AS data_attivita,
+                COALESCE(ns.updated_at, ns.created_at) AS data_sort,
+                4 AS ordinamento
+            FROM tbl_nota_spesa ns
+            LEFT JOIN tbl_gare g ON g.id_gara = ns.rif_gara
+            WHERE ns.rif_utente = :wp_user_id_4
+              AND ns.stato = 'RESPINTA'
+              AND DATE(COALESCE(ns.updated_at, ns.created_at)) BETWEEN :data_inizio_4 AND :data_fine_4
+
+            UNION ALL
+
+            SELECT
+                CONCAT('Nota spesa liquidata #NS', LPAD(ns.id, 4, '0')) AS testo,
+                DATE(COALESCE(ns.updated_at, ns.created_at)) AS data_attivita,
+                COALESCE(ns.updated_at, ns.created_at) AS data_sort,
+                5 AS ordinamento
+            FROM tbl_nota_spesa ns
+            WHERE ns.rif_utente = :wp_user_id_5
+              AND ns.stato = 'LIQUIDATA'
+              AND DATE(COALESCE(ns.updated_at, ns.created_at)) BETWEEN :data_inizio_5 AND :data_fine_5
+        ) t
+        ORDER BY t.data_sort DESC, t.ordinamento ASC
+        LIMIT 8
+    ");
+    $stmtAttivita->execute([
+        ':wp_user_id_1' => $wpUserId,
+        ':data_inizio_1' => $inizio->format('Y-m-d'),
+        ':data_fine_1' => $fine->format('Y-m-d'),
+
+        ':wp_user_id_2' => $wpUserId,
+        ':data_inizio_2' => $inizio->format('Y-m-d'),
+        ':data_fine_2' => $fine->format('Y-m-d'),
+
+        ':wp_user_id_3' => $wpUserId,
+        ':data_inizio_3' => $inizio->format('Y-m-d'),
+        ':data_fine_3' => $fine->format('Y-m-d'),
+
+        ':wp_user_id_4' => $wpUserId,
+        ':data_inizio_4' => $inizio->format('Y-m-d'),
+        ':data_fine_4' => $fine->format('Y-m-d'),
+
+        ':wp_user_id_5' => $wpUserId,
+        ':data_inizio_5' => $inizio->format('Y-m-d'),
+        ':data_fine_5' => $fine->format('Y-m-d'),
+    ]);
+
+    $ultimeAttivita = [];
+    $idx = 1;
+    foreach ($stmtAttivita->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $ultimeAttivita[] = [
+            'id' => $idx++,
+            'testo' => (string) $row['testo'],
+            'data' => (new DateTimeImmutable((string) $row['data_attivita']))->format('d/m/Y'),
+        ];
+    }
+
+    echo json_encode([
+        'success' => true,
+        'data' => [
+            'utente' => $utente['utente'],
+            'periodo' => formattaPeriodo($inizio, $fine),
+            'dataDa' => $inizio->format('Y-m-d'),
+            'dataA' => $fine->format('Y-m-d'),
+            'gareTotali' => (int) ($kpi['gare_totali'] ?? 0),
+            'noteTotali' => (int) ($kpi['note_totali'] ?? 0),
+            'noteInviate' => (int) ($kpi['note_inviate'] ?? 0),
+            'noteApprovate' => (int) ($kpi['note_approvate'] ?? 0),
+            'noteRifiutate' => (int) ($kpi['note_rifiutate'] ?? 0),
+            'noteLiquidate' => (int) ($kpi['note_liquidate'] ?? 0),
+            'ultimeAttivita' => $ultimeAttivita,
+            'andamentoMensile' => array_values($mesi),
+            'statoNote' => [
+                ['nome' => 'Bozza', 'valore' => $statoNote['Bozza']],
+                ['nome' => 'Inviate', 'valore' => $statoNote['Inviate']],
+                ['nome' => 'Approvate', 'valore' => $statoNote['Approvate']],
+                ['nome' => 'Rifiutate', 'valore' => $statoNote['Rifiutate']],
+                ['nome' => 'Liquidate', 'valore' => $statoNote['Liquidate']],
+            ],
+        ],
+    ], JSON_UNESCAPED_UNICODE);
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Errore caricamento dashboard utente.',
+        'error' => $e->getMessage(),
+    ], JSON_UNESCAPED_UNICODE);
+}

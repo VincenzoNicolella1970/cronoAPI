@@ -22,7 +22,7 @@ return [
         'port' => 3306,
         'dbname' => 'cronofr',
         'username' => 'root',
-        'password' => 'Avis2025@',
+        'password' => 'root',
         'charset' => 'utf8mb4',
     ],
     'new_admin_vincenzo' => [

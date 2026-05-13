@@ -7,7 +7,7 @@
     {
       "name": "Listen for Xdebug",
       "pathMappings": {
-        "C:\\Users\\Christiana\\Documents\\CronometristiFrosinone2026\\WebAPI": "${workspaceFolder}"
+        "C:\\Users\\Ryzen\\Documents\\SviluppoSW\\CronometristiFrosinone2026\\WebAPI": "${workspaceFolder}"
       },
       "type": "php",
       "request": "launch",

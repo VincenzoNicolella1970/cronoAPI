@@ -1,0 +1,11 @@
+{
+	"editor.defaultFormatter": "esbenp.prettier-vscode",
+	"workbench.colorTheme": "Dark+",
+	"editor.semanticHighlighting.enabled": false,
+	"editor.formatOnSave": true,
+	"editor.tokenColorCustomizations": {
+		"comments": "#6A9955",
+		"keywords": "#569CD6",
+		"strings": "#CE9178"
+	}
+}
